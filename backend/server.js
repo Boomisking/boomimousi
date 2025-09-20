@@ -6,35 +6,68 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory expenses array (replace with DB in production)
-let expenses = [];
+
+const clientPromise = require('./mongodb');
+
 
 // Get all expenses
-app.get('/api/expenses', (req, res) => {
-  res.json(expenses);
+app.get('/api/expenses', async (req, res) => {
+  try {
+    const client = await clientPromise;
+    const db = client.db();
+    const expenses = await db.collection('expenses').find({}).toArray();
+    res.json(expenses);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch expenses' });
+  }
 });
+
 
 // Add a new expense
-app.post('/api/expenses', (req, res) => {
-  const expense = { id: Date.now(), ...req.body };
-  expenses.push(expense);
-  res.status(201).json(expense);
+app.post('/api/expenses', async (req, res) => {
+  try {
+    const client = await clientPromise;
+    const db = client.db();
+    const expense = { ...req.body, createdAt: new Date() };
+    const result = await db.collection('expenses').insertOne(expense);
+    res.status(201).json({ ...expense, _id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add expense' });
+  }
 });
+
 
 // Delete an expense
-app.delete('/api/expenses/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  expenses = expenses.filter(e => e.id !== id);
-  res.status(204).end();
+app.delete('/api/expenses/:id', async (req, res) => {
+  try {
+    const client = await clientPromise;
+    const db = client.db();
+    const { ObjectId } = require('mongodb');
+    await db.collection('expenses').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete expense' });
+  }
 });
 
+
 // Update an expense
-app.put('/api/expenses/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  const index = expenses.findIndex(e => e.id === id);
-  if (index === -1) return res.status(404).json({ error: 'Not found' });
-  expenses[index] = { ...expenses[index], ...req.body };
-  res.json(expenses[index]);
+app.put('/api/expenses/:id', async (req, res) => {
+  try {
+    const client = await clientPromise;
+    const db = client.db();
+    const { ObjectId } = require('mongodb');
+    const update = { $set: req.body };
+    const result = await db.collection('expenses').findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      update,
+      { returnDocument: 'after' }
+    );
+    if (!result.value) return res.status(404).json({ error: 'Not found' });
+    res.json(result.value);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update expense' });
+  }
 });
 
 app.listen(PORT, () => {
